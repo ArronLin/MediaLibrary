@@ -350,9 +350,10 @@ body.select-mode .card .del { display: none; }
 }
 .dlg::backdrop { background: rgba(0, 0, 0, .68); backdrop-filter: blur(3px); }
 .dlg-close {
-  position: absolute;
+  position: sticky;
   top: 12px;
-  right: 14px;
+  float: right;
+  margin: 12px 14px 0 0;
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -362,6 +363,7 @@ body.select-mode .card .del { display: none; }
   font-size: 19px;
   line-height: 1;
   z-index: 5;
+  cursor: pointer;
 }
 .dlg-close:hover { background: var(--danger); }
 
