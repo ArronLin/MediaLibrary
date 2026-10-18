@@ -479,6 +479,8 @@ def remove_items(h: Handler, m, q):
     if lib:
         db.add_ignored(lib["id"], entries)
     db.delete_items(ids)
+    # 广播给所有已连接页面：本页虽会主动重载，其他标签页/多开窗口靠这条刷新
+    sync.publish({"type": "item_updated", "ids": ids})
     h.json({"ok": True, "removed": len(ids), "files": len(entries)})
 
 

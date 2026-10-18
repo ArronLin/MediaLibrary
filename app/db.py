@@ -411,6 +411,8 @@ def list_items(library_id: int, include_hidden: bool = False) -> List[Dict[str, 
     params = [library_id]
     if not include_hidden:
         sql += " AND i.hidden=0"
+    # 注意：这里不能过滤 missing 宽限期的幽灵条目——_apply_groups 靠本函数
+    # 按 group_key 复用已有条目，过滤掉会让重新出现的文件建出重复条目
     sql += " ORDER BY i.id DESC"
     return [dict(r) for r in rows(sql, params)]
 
@@ -443,6 +445,10 @@ def list_item_briefs(library_id: int, include_hidden: bool = False) -> List[Dict
     params = [library_id]
     if not include_hidden:
         sql += " AND i.hidden=0"
+    # 文件全部处于 missing 宽限期的幽灵条目不上海报墙
+    # （空壳卡无内容可播；宽限期过后 delete_orphan_items 会真正删除）
+    sql += (" AND (i.kind='collection' OR EXISTS "
+            "(SELECT 1 FROM media_file fb WHERE fb.item_id=i.id AND fb.missing=0))")
     sql += " ORDER BY i.id DESC"
     return [dict(r) for r in rows(sql, params)]
 
@@ -559,7 +565,9 @@ def delete_empty_franchises(library_id: int) -> int:
 def list_franchises(library_id: int) -> List[Dict[str, Any]]:
     sql = (
         "SELECT f.*, "
-        "  (SELECT COUNT(*) FROM item i WHERE i.franchise_id=f.id AND i.hidden=0) AS item_count,"
+        "  (SELECT COUNT(*) FROM item i WHERE i.franchise_id=f.id AND i.hidden=0"
+        "     AND EXISTS (SELECT 1 FROM media_file fm"
+        "                 WHERE fm.item_id=i.id AND fm.missing=0)) AS item_count,"
         "  (SELECT COUNT(*) FROM item i WHERE i.franchise_id=f.id AND i.hidden=0"
         "     AND i.poster_path IS NOT NULL) AS poster_count,"
         "  (SELECT MIN(i.year) FROM item i WHERE i.franchise_id=f.id) AS min_year,"
@@ -573,7 +581,9 @@ def list_franchises(library_id: int) -> List[Dict[str, Any]]:
 def get_franchise(fid: int) -> Optional[Dict[str, Any]]:
     sql = (
         "SELECT f.*, "
-        "  (SELECT COUNT(*) FROM item i WHERE i.franchise_id=f.id AND i.hidden=0) AS item_count,"
+        "  (SELECT COUNT(*) FROM item i WHERE i.franchise_id=f.id AND i.hidden=0"
+        "     AND EXISTS (SELECT 1 FROM media_file fm"
+        "                 WHERE fm.item_id=i.id AND fm.missing=0)) AS item_count,"
         "  (SELECT COUNT(*) FROM item i WHERE i.franchise_id=f.id AND i.hidden=0"
         "     AND i.poster_path IS NOT NULL) AS poster_count,"
         "  (SELECT MIN(i.year) FROM item i WHERE i.franchise_id=f.id) AS min_year,"
@@ -591,6 +601,9 @@ def franchise_members(fid: int) -> List[Dict[str, Any]]:
         "  (SELECT COUNT(*) FROM media_file f3 "
         "  WHERE f3.item_id=i.id AND f3.missing=0 AND f3.episode IS NOT NULL) AS ep_count "
         "FROM item i WHERE i.franchise_id=? AND i.hidden=0"
+        # 文件全部 missing（宽限期幽灵）的成员不进系列展开视图
+        " AND EXISTS (SELECT 1 FROM media_file fm"
+        "             WHERE fm.item_id=i.id AND fm.missing=0)"
         " ORDER BY i.year IS NULL, i.year, i.title"
     )
     return [dict(r) for r in rows(sql, (fid,))]
