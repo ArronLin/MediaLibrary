@@ -3,8 +3,9 @@
 
 产物：dist/MediaLibrary-setup.zip
 内含：app + web + runtime(内嵌 Python) + run.bat + install.bat + app.ico
-      + config.json + README.md
-绝不打包 data/（用户数据不进安装包）。
+      + config.example.json + README.md
+绝不打包 data/（用户数据不进安装包）；
+绝不打包 config.json（个人配置含 API Key 与内网路径，只带 example 模板）。
 
 用法：
     python tools/build_installer.py            # 打包
@@ -25,7 +26,7 @@ STAGE_NAME = "MediaLibrary"
 RUNTIME_ZIP_URL = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
 
 COPY_DIRS = ("app", "web")
-COPY_FILES = ("run.bat", "install.bat", "app.ico", "config.json", "README.md")
+COPY_FILES = ("run.bat", "install.bat", "app.ico", "config.example.json", "README.md")
 
 
 def ensure_runtime(download: bool) -> None:
