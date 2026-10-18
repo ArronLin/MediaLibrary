@@ -172,12 +172,18 @@
 
   <section>
     <h3>播放器</h3>
-    <div id="playerList" class="player-list"></div>
-    <div class="row">
-      <label>自定义路径</label>
-      <input id="cfgPlayer" placeholder="留空自动探测，如 C:\...\xmp.exe">
-    </div>
-    <p class="tip">检测顺序：自定义路径 → 迅雷影音 → PotPlayer → VLC → 系统默认关联。</p>
+    <div id="playerPick" class="player-pick"></div>
+    <p class="tip">
+      点选一个作为<b>默认播放器</b>；如果它打不开某个视频，会按列表顺序
+      自动换下一个已安装的播放器，全部失败才会提示错误。
+    </p>
+    <details class="adv">
+      <summary>高级：手动指定播放器路径（一般不用填）</summary>
+      <div class="row">
+        <label>exe 路径</label>
+        <input id="cfgPlayer" placeholder="留空自动探测，如 C:\...\mpv.exe">
+      </div>
+    </details>
   </section>
 
   <section>

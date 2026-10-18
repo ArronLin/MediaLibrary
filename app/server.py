@@ -195,7 +195,7 @@ def health(h: Handler, m, q):
         "python": sys.version.split()[0],
         "db": str(paths.DB_PATH.name),
         "tmdb_key_set": bool((cfg.get("tmdb") or {}).get("api_key")),
-        "players": [os.path.basename(p) for p in player.detect(cfg)],
+        "players": [p["name"] for p in player.detect(cfg)],
         "sync": sync.status(),
     })
 
@@ -454,10 +454,7 @@ def play_item(h: Handler, m, q):
         }, 403)
 
     res = player.play(abs_path, cfg)
-    if res.get("ok"):
-        return h.json({"ok": True, "player": res.get("player"),
-                       "path": abs_path})
-    return h.json(dict(res, path=abs_path), 500)
+    return h.json(dict(res, path=abs_path), 200 if res.get("ok") else 500)
 
 
 @route("POST", r"/api/items/remove")
@@ -631,6 +628,15 @@ def set_config(h: Handler, m, q):
     for key in ("player", "scan", "sync", "server", "douban"):
         if key in b and isinstance(b[key], dict):
             patch[key] = b[key]
+    # custom_paths 整体替换而非合并，清空输入框才能真正清掉 "custom"
+    if "player" in patch and "custom_paths" in patch["player"]:
+        cp = {k: str(v) for k, v in (patch["player"]["custom_paths"] or {}).items()
+              if str(v).strip()}
+        cur = dict((config.load().get("player") or {}).get("custom_paths") or {})
+        for k, v in cur.items():          # 保留 UI 不管理的手动 key
+            if k != "custom" and k not in cp:
+                cp[k] = v
+        patch["player"]["custom_paths"] = cp
     cfg = config.save(patch)
     h.json({"ok": True, "config": config.public_view(), "saved": list(patch)})
 

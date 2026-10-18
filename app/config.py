@@ -49,7 +49,10 @@ DEFAULT_CONFIG = {
         "web_search": True,
     },
     "player": {
-        "chain": [],
+        # 默认播放器 key（对应 player.KNOWN_PLAYERS），空 = 按探测顺序
+        "default": "",
+        # 手动指定的播放器路径（key "custom" = 通用自定义 exe）
+        "custom_paths": {},
         "allow_remote_play": False,
     },
     "scan": {

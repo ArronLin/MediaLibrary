@@ -522,7 +522,9 @@ async function openFranchise(fid) {
 async function playItem(id, fileId) {  const body = fileId ? { file_id: Number(fileId) } : {};
   const { res, data } = await api(`/api/items/${id}/play`, { method: 'POST', body });
   if (data.ok) {
-    toast('已调用 ' + (data.player || '播放器'), 'ok');
+    toast(data.fallback
+      ? '默认播放器打不开，已改用 ' + (data.player || '备用播放器')
+      : '已调用 ' + (data.player || '播放器'), 'ok');
     return;
   }
   if (data.reason === 'remote_play_disabled') {
@@ -686,7 +688,7 @@ async function openSettings() {
   $('#keyState').textContent = S.cfg.tmdb.api_key_set ? '已配置' : '未配置';
   $('#keyState').className = 'tag' + (S.cfg.tmdb.api_key_set ? ' ok' : '');
   $('#cfgBase').value = S.cfg.tmdb.base_url || '';
-  $('#cfgPlayer').value = (S.cfg.player.chain || [])[0] || '';
+  $('#cfgPlayer').value = ((S.cfg.player || {}).custom_paths || {}).custom || '';
   const lm = S.cfg.llm || {};
   $('#cfgLlmOn').checked = !!lm.enabled;
   $('#cfgLlmBase').value = lm.base_url || '';
@@ -697,9 +699,7 @@ async function openSettings() {
   $('#cfgLlmKey').dataset.set = hasKey ? '1' : '0';
   S.exclude = (S.cfg.scan && S.cfg.scan.exclude) ? S.cfg.scan.exclude.slice() : [];
   renderExclude();
-  $('#playerList').innerHTML = S.players.length
-    ? S.players.map(p => `<span>${esc(p)}</span>`).join('')
-    : '<span style="color:#ffb4b4">未检测到播放器</span>';
+  renderPlayerPick();
 
   await renderLibList();
   await renderIgnored();
@@ -717,6 +717,30 @@ function renderExclude() {
   ).join('');
   $$('[data-exc]', box).forEach(b => {
     b.onclick = () => { S.exclude.splice(Number(b.dataset.exc), 1); renderExclude(); };
+  });
+}
+
+function renderPlayerPick() {
+  const box = $('#playerPick');
+  const def = (S.cfg.player || {}).default || '';
+  const rows = [{ key: '', name: '自动（按检测顺序）', path: '' }].concat(S.players);
+  if (!S.players.length) {
+    box.innerHTML = '<span class="none">未检测到已安装的播放器，可在「高级」里手动指定路径</span>';
+    return;
+  }
+  box.innerHTML = rows.map(p => `
+    <label class="pp-row${def === p.key ? ' on' : ''}">
+      <input type="radio" name="pp" value="${esc(p.key)}" ${def === p.key ? 'checked' : ''}>
+      <span class="pp-name">${esc(p.name)}</span>
+      <span class="pp-path${p.path ? '' : ' auto'}"
+            title="${esc(p.path || '自动探测本机已安装的播放器')}">${esc(p.path || '自动探测')}</span>
+      ${p.key && def === p.key ? '<span class="pp-def">默认</span>' : ''}
+    </label>`).join('');
+  $$('input[name="pp"]', box).forEach(r => {
+    r.onchange = () => {
+      S.cfg.player = Object.assign({}, S.cfg.player || {}, { default: r.value });
+      renderPlayerPick();
+    };
   });
 }
 
@@ -934,9 +958,15 @@ function bind() {
   });
 
   $('#saveCfg').addEventListener('click', async () => {
+    const cp = {};
+    const customExe = $('#cfgPlayer').value.trim();
+    if (customExe) cp.custom = customExe;
     const body = {
       tmdb: { base_url: $('#cfgBase').value.trim() },
-      player: { chain: $('#cfgPlayer').value.trim() ? [$('#cfgPlayer').value.trim()] : [] },
+      player: Object.assign({}, S.cfg.player || {}, {
+        default: (S.cfg.player || {}).default || '',
+        custom_paths: cp,
+      }),
       scan: { exclude: S.exclude },
       llm: {
         enabled: $('#cfgLlmOn').checked,

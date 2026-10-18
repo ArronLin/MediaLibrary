@@ -502,6 +502,22 @@ body.select-mode .card .del { display: none; }
 .exclude-list .none { color: var(--muted-2); font-size: 12px; }
 .player-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .player-list span { font-size: 11.5px; background: var(--panel-2); padding: 3px 9px; border-radius: 20px; color: #c3cbdb; }
+.player-pick { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
+.pp-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border: 1px solid var(--line, #2a3247); border-radius: 10px; cursor: pointer;
+  background: rgba(255, 255, 255, .02); transition: border-color .15s, background .15s; }
+.pp-row:hover { border-color: #3d4a66; }
+.pp-row.on { border-color: #4f7cff; background: rgba(79, 124, 255, .1); }
+.pp-row input { accent-color: #4f7cff; flex: none; }
+.pp-name { font-weight: 600; font-size: 13px; color: #e8edf7; min-width: 128px; }
+.pp-path { font-size: 11px; color: var(--muted, #7f8ba3); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.pp-path.auto { color: #6f7b93; }
+.pp-def { flex: none; font-size: 10.5px; color: #ffd166;
+  border: 1px solid rgba(255, 209, 102, .45); padding: 1px 8px; border-radius: 10px; }
+.adv { margin-top: 6px; }
+.adv summary { cursor: pointer; color: var(--muted, #7f8ba3); font-size: 12px; user-select: none; }
+.adv[open] summary { margin-bottom: 8px; }
 .ignored-list .lib-row { font-size: 12px; }
 .ignored-list .nm { font-weight: 400; color: #c3cbdb; }
 
