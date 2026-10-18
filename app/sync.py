@@ -132,6 +132,18 @@ def reset_item_from_files(item_id: int) -> Optional[Dict[str, Any]]:
 def _payload_from_item(item: Dict[str, Any]) -> Dict[str, Any]:
     title = item.get("title") or ""
     orig = item.get("original_title") or ""
+    # 优先从 group_key（文件名/文件夹名）还原「最初的解析标题」。
+    # item.title 已被上一次刮削结果覆盖，一旦刮错（Hunter: Return to
+    # Justice → 怪物猎人），重刮会拿污染后的标题精确命中错误影片、
+    # 错误自我强化。文件名是唯一不会被刮削覆盖的真相来源。
+    # 用户手动改绑（locked=1）尊重用户的标题。
+    gk = item.get("group_key") or ""
+    if (item.get("kind") == "movie" and not item.get("locked")
+            and gk.startswith("movie:")):
+        fp = parser.parse_name(gk[len("movie:"):])
+        if fp.get("title"):
+            title = fp["title"]
+            orig = fp.get("en_title") or ""
     cn = title if CJK_RE.search(title) else ""
     en = orig
     if not cn:
@@ -649,7 +661,7 @@ def _keep_season_meta(item_id: int, new_title: str,
 
 def _save_metadata(item_id: int, r: Dict[str, Any]) -> None:
     title, year = _keep_season_meta(item_id, r.get("title") or "", r.get("year"))
-    fields = {
+    all_fields = {
         "title": title or None,
         "original_title": r.get("original_title") or None,
         "year": year,
@@ -671,8 +683,15 @@ def _save_metadata(item_id: int, r: Dict[str, Any]) -> None:
         "confidence": r.get("confidence") or 0,
         "status": r.get("status") or "ok",
     }
-    fields = {k: v for k, v in fields.items() if v is not None}
-    db.update_item(item_id, **fields)
+    fields = {k: v for k, v in all_fields.items() if v is not None}
+    if r.get("status") == "ok":
+        # 完整刮削成功：以本次结果为准，空字段也要覆盖清掉。
+        # 否则换绑重刮后，上一部影片的简介/演员表会残留
+        # （Hunter: Return to Justice 换对后 overview 还是怪物猎人的）。
+        db.update_item(item_id, **all_fields)
+    else:
+        # 部分结果（如仅补到一张海报）：只更新拿到的字段，别清空旧数据
+        db.update_item(item_id, **fields)
     if r.get("seasons") or r.get("episodes"):
         db.replace_seasons(item_id, r.get("seasons") or [], r.get("episodes") or [])
 

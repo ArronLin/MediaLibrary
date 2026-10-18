@@ -196,9 +196,18 @@ class Tmdb:
             nonlocal best
             for rank, raw in enumerate(results[:8]):
                 cand = self._candidate(raw, kind)
+                sim = self._sim_of(parsed, cand, q)
                 # 带年份过滤的那一轮，TMDB 会放宽片名匹配返回一堆无关结果，
                 # 片名对不上就丢掉，否则「异形 1973」会被认成《黄蜂女来袭》
-                if min_sim and self._sim_of(parsed, cand, q) < min_sim:
+                if min_sim and sim < min_sim:
+                    continue
+                # 纯文本轮（无年份参数）里，TMDB 的模糊搜索会拿热门片凑数：
+                # 「Hunter Return To Justice 2002」（TMDB 尚未收录）曾匹配到
+                # 相差 18 年的《Monster Hunter》还拿了 0.65 分。年份差得远
+                # 且片名又不是精确匹配的候选直接淘汰——文件名年份本身可能
+                # 是错的，所以只有「标题精确一致」才豁免年份审查。
+                py, cy = parsed.get("year"), cand.get("year")
+                if py and cy and abs(py - cy) > 5 and sim < 0.9:
                     continue
                 sc = self._score(parsed, cand, rank, q)
                 # 同分时按 TMDB 热度决胜：同名的《美国队长》有 2011 和 1990
