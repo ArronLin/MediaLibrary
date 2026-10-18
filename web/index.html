@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>影视库 · MediaLibrary</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎬</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🎬</span>
+    <span class="brandname">影视库</span>
+  </div>
+
+  <select id="libSel" class="lib-select" title="切换媒体库"></select>
+
+  <div class="search">
+    <svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14"/></svg>
+    <input id="search" type="search" placeholder="搜索片名 / 原名…" autocomplete="off">
+  </div>
+
+  <div class="seg" id="kindSeg">
+    <button data-kind="" class="on">全部</button>
+    <button data-kind="movie">电影</button>
+    <button data-kind="series">剧集</button>
+    <button data-kind="__fr" title="只看系列合集">系列</button>
+  </div>
+
+  <div class="sortbox">
+    <select id="sortSel" class="mini-select" title="排序方式">
+      <option value="added">最近添加</option>
+      <option value="mtime">最近修改</option>
+      <option value="rating">评分最高</option>
+      <option value="title">片名</option>
+      <option value="year">年份</option>
+      <option value="size">体积最大</option>
+      <option value="eps">集数最多</option>
+    </select>
+    <button id="sortDirBtn" class="btn ghost icon sm" title="切换排序方向">↓</button>
+  </div>
+
+  <button id="unidBtn" class="btn ghost hidden" title="未识别的条目">未识别 <b>0</b></button>
+
+  <div class="spacer"></div>
+
+  <button id="selBtn" class="btn ghost">选择</button>
+  <button id="syncBtn" class="btn primary">
+    <svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8"/></svg>
+    增量更新
+  </button>
+  <button id="setBtn" class="btn ghost icon" title="设置">
+    <svg viewBox="0 0 24 24" width="17" height="17"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L14.9 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.4 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.9h4l.4-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5"/></svg>
+  </button>
+</header>
+
+<div id="progress" class="progress hidden">
+  <div class="progress-track"><div class="progress-bar" id="pbar"></div></div>
+  <div class="progress-text" id="ptext">准备中…</div>
+  <button class="progress-close" id="pclose" title="隐藏">×</button>
+</div>
+
+<nav id="genreBar" class="genrebar hidden"></nav>
+
+<main>
+  <div id="hint" class="hint hidden"></div>
+  <div id="wall" class="wall"></div>
+  <div id="empty" class="empty hidden">
+    <div class="empty-icon">🎞️</div>
+    <h2 id="emptyTitle">媒体库还是空的</h2>
+    <p id="emptyDesc">配置一个媒体库目录，然后点击「增量更新」开始扫描与刮削。</p>
+    <button class="btn primary" id="emptyAction">配置媒体库</button>
+  </div>
+</main>
+
+<!-- 多选工具条 -->
+<div id="selbar" class="selbar hidden">
+  <span id="selCount">已选 0 项</span>
+  <button class="btn ghost sm" id="selAll">全选</button>
+  <button class="btn ghost sm" id="selInv">反选</button>
+  <button class="btn danger sm" id="selDel">移除所选</button>
+  <button class="btn ghost sm" id="selExit">退出选择</button>
+</div>
+
+<!-- 详情 -->
+<dialog id="detailDlg" class="dlg detail">
+  <button class="dlg-close" id="dClose">×</button>
+  <div id="dBody"></div>
+</dialog>
+
+<!-- 系列详情 -->
+<dialog id="frDlg" class="dlg detail frdlg">
+  <button class="dlg-close" id="fClose">×</button>
+  <div id="fBody"></div>
+</dialog>
+
+<!-- 设置 -->
+<dialog id="setDlg" class="dlg settings">
+  <button class="dlg-close" id="sClose">×</button>
+  <h2>设置</h2>
+
+  <section>
+    <h3>媒体库</h3>
+    <div id="libList" class="lib-list"></div>
+    <div class="row add-lib">
+      <input id="newLibName" placeholder="名称（可选）">
+      <input id="newLibPath" placeholder="目录路径，如 D:\Movies 或 \\NAS\电影">
+      <button class="btn ghost sm" id="pickDir">浏览…</button>
+      <button class="btn primary sm" id="addLib">添加</button>
+    </div>
+    <p class="tip">切换媒体库后：已刮削过的库直接读缓存秒开；新目录会全量扫描并刮削。切回旧库不会重复刮削。</p>
+  </section>
+
+  <section>
+    <h3>排除规则</h3>
+    <div id="excludeList" class="exclude-list"></div>
+    <div class="row add-lib">
+      <input id="newExclude" placeholder="如：剧集\亚洲　或　*.ts　或　花絮">
+      <button class="btn ghost sm" id="addExclude">添加</button>
+    </div>
+    <p class="tip">
+      命中规则的文件或目录不会出现在海报墙。三种写法：<br>
+      · <code>剧集\亚洲</code> 目录前缀，整棵子树排除<br>
+      · <code>*.ts</code> / <code>第*集</code> 通配，匹配任意层级<br>
+      · <code>花絮</code> 纯文字，路径中包含即排除<br>
+      改完保存后点「增量更新」生效，被排除的条目会自动从库中移除。
+    </p>
+  </section>
+
+  <section>
+    <h3>TMDB</h3>
+    <div class="row">
+      <label>API Key</label>
+      <input id="cfgKey" placeholder="v3 key 或 v4 Bearer token">
+      <span id="keyState" class="tag"></span>
+    </div>
+    <div class="row">
+      <label>接口地址</label>
+      <input id="cfgBase">
+    </div>
+    <p class="tip">国内网络通常只能访问 <code>api.tmdb.org</code>，主域名 <code>api.themoviedb.org</code> 会被墙。Key 可在 themoviedb.org → 设置 → API 免费申请。</p>
+  </section>
+
+  <section>
+    <h3>LLM 兜底（可选）</h3>
+    <div class="row">
+      <label>启用</label>
+      <input id="cfgLlmOn" type="checkbox">
+      <span class="tag">仅 TMDB / 豆瓣都认不出时才触发</span>
+    </div>
+    <div class="row">
+      <label>接口地址</label>
+      <input id="cfgLlmBase" placeholder="https://api.openai.com/v1">
+    </div>
+    <div class="row">
+      <label>API Key</label>
+      <input id="cfgLlmKey" placeholder="sk-...">
+    </div>
+    <div class="row">
+      <label>模型</label>
+      <input id="cfgLlmModel" placeholder="如 gpt-4o-mini / deepseek-chat">
+    </div>
+    <p class="tip">
+      任意 OpenAI 兼容的 <code>/chat/completions</code> 接口都行（OpenAI / DeepSeek / 通义 / 本地 vLLM 等）。<br>
+      <b>安全约定</b>：LLM 只负责猜「候选搜索词」，绝不直接产出 TMDB ID 或元数据；
+      候选词仍要过一遍正常检索+打分，分数不达标就维持未识别，不会把错片写进库。
+      未配置或关闭时完全不发请求。
+    </p>
+  </section>
+
+  <section>
+    <h3>播放器</h3>
+    <div id="playerList" class="player-list"></div>
+    <div class="row">
+      <label>自定义路径</label>
+      <input id="cfgPlayer" placeholder="留空自动探测，如 C:\...\xmp.exe">
+    </div>
+    <p class="tip">检测顺序：自定义路径 → 迅雷影音 → PotPlayer → VLC → 系统默认关联。</p>
+  </section>
+
+  <section>
+    <h3>已移除的条目</h3>
+    <div id="ignoredList" class="ignored-list"></div>
+  </section>
+
+  <div class="dlg-actions">
+    <button class="btn primary" id="saveCfg">保存设置</button>
+  </div>
+</dialog>
+
+<!-- 通用确认 -->
+<dialog id="confirmDlg" class="dlg confirm">
+  <h2 id="cTitle">确认</h2>
+  <div id="cBody" class="c-body"></div>
+  <div class="dlg-actions">
+    <button class="btn ghost" id="cCancel">取消</button>
+    <button class="btn danger" id="cOk">确认</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

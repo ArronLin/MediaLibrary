@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "port_scan_to": 8010,
+    "trust_proxy": false
+  },
+  "tmdb": {
+    "base_url": "https://api.tmdb.org/3",
+    "image_base": "https://image.tmdb.org/t/p",
+    "api_key": "",
+    "auth_mode": "query",
+    "language": "zh-CN",
+    "fallback_language": "en-US",
+    "rate_limit_rps": 3.5,
+    "timeout": 12
+  },
+  "douban": {
+    "enabled": true,
+    "rate_limit_rps": 0.8,
+    "timeout": 10
+  },
+  "llm": {
+    "enabled": false,
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "",
+    "model": "",
+    "temperature": 0.2,
+    "max_tokens": 400,
+    "timeout": 30
+  },
+  "poster": {
+    "web_search": true
+  },
+  "player": {
+    "chain": [],
+    "allow_remote_play": false
+  },
+  "scan": {
+    "video_ext": [
+      "mp4",
+      "mkv",
+      "avi",
+      "rmvb",
+      "rm",
+      "wmv",
+      "mov",
+      "flv",
+      "ts",
+      "m2ts",
+      "mpg",
+      "mpeg",
+      "webm"
+    ],
+    "min_size_mb": 20,
+    "max_depth": 6,
+    "exclude": [
+      "fromX",
+      "圆桌派1-7季",
+      "*幕后花絮"
+    ]
+  },
+  "sync": {
+    "auto_on_start": false,
+    "scrape_workers": 3
+  },
+  "ui": {
+    "card_min_width": 150,
+    "default_sort": "added"
+  },
+  "super_series": [
+    {
+      "name": "漫威超英电影",
+      "children": [
+        {
+          "name": "钢铁侠系列",
+          "collection_ids": [
+            131292
+          ],
+          "keywords": [
+            "Iron Man",
+            "钢铁侠"
+          ]
+        },
+        {
+          "name": "雷神系列",
+          "collection_ids": [
+            131296
+          ],
+          "keywords": [
+            "Thor",
+            "雷神"
+          ]
+        },
+        {
+          "name": "美国队长系列",
+          "collection_ids": [
+            131295
+          ],
+          "keywords": [
+            "Captain America",
+            "美国队长"
+          ]
+        },
+        {
+          "name": "复仇者联盟系列",
+          "collection_ids": [
+            86311
+          ],
+          "keywords": [
+            "Avengers",
+            "复仇者联盟"
+          ]
+        },
+        {
+          "name": "银河护卫队系列",
+          "collection_ids": [
+            284433
+          ],
+          "keywords": [
+            "Guardians of the Galaxy",
+            "银河护卫队"
+          ]
+        },
+        {
+          "name": "蜘蛛侠系列",
+          "collection_ids": [
+            531241
+          ],
+          "keywords": [
+            "Spider-Man",
+            "Spider-Noir",
+            "蜘蛛侠"
+          ]
+        },
+        {
+          "name": "奇异博士系列",
+          "collection_ids": [
+            618529
+          ],
+          "keywords": [
+            "Doctor Strange",
+            "奇异博士"
+          ]
+        },
+        {
+          "name": "黑豹系列",
+          "collection_ids": [
+            529892
+          ],
+          "keywords": [
+            "Black Panther",
+            "黑豹"
+          ]
+        },
+        {
+          "name": "蚁人系列",
+          "collection_ids": [],
+          "keywords": [
+            "Ant-Man",
+            "Ant Man",
+            "蚁人"
+          ]
+        },
+        {
+          "name": "惊奇队长系列",
+          "collection_ids": [],
+          "keywords": [
+            "Captain Marvel",
+            "惊奇队长"
+          ]
+        },
+        {
+          "name": "尚气系列",
+          "collection_ids": [],
+          "keywords": [
+            "Shang-Chi",
+            "尚气"
+          ]
+        },
+        {
+          "name": "永恒族系列",
+          "collection_ids": [],
+          "keywords": [
+            "Eternals",
+            "永恒族"
+          ]
+        },
+        {
+          "name": "黑寡妇系列",
+          "collection_ids": [],
+          "keywords": [
+            "Black Widow",
+            "黑寡妇"
+          ]
+        },
+        {
+          "name": "浩克系列",
+          "collection_ids": [],
+          "keywords": [
+            "Incredible Hulk",
+            "绿巨人",
+            "无敌浩克"
+          ]
+        }
+      ]
+    }
+  ],
+  "seed_library": {
+    "name": "电影",
+    "path": "\\\\\\\\NAS\\\\movies"
+  }
+}

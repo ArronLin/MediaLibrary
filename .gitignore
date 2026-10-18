@@ -1,0 +1,21 @@
+# ---- 用户数据 / 隐私：绝不入库 ----
+data/
+config.json
+
+# ---- 可再生的运行环境与构建产物 ----
+runtime/
+dist/
+
+# ---- IDE / 编辑器 ----
+.trae/
+.vscode/
+.idea/
+
+# ---- Python 中间产物 ----
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- 系统杂项 ----
+Thumbs.db
+.DS_Store
