@@ -716,6 +716,25 @@ def _seed_library(cfg: Dict[str, Any]) -> None:
             db.set_kv("active_library_id", str(lid))
 
 
+def _open_browser(url: str) -> None:
+    """用系统浏览器打开 url：os.startfile 优先，webbrowser 兜底，
+    结果打印到控制台，双击启动的用户能直接看到发生了什么。"""
+    try:
+        os.startfile(url)
+        print("  浏览器已打开: %s" % url)
+        return
+    except OSError:
+        pass
+    try:
+        import webbrowser
+        if webbrowser.open(url):
+            print("  浏览器已打开: %s" % url)
+            return
+    except Exception:
+        pass
+    print("  未能自动打开浏览器，请手动访问: %s" % url)
+
+
 def _instance_alive(host: str, port: int) -> bool:
     """探测配置端口上是否已有本应用的活实例。"""
     probe = "127.0.0.1" if host in ("0.0.0.0", "") else host
@@ -744,11 +763,9 @@ def main() -> None:
     if _instance_alive(host, start_port):
         print("=" * 58)
         print("  已有实例在运行，直接打开页面…")
-        print("  访问地址 : http://127.0.0.1:%d" % start_port)
         print("=" * 58)
         if os.environ.get("MEDIA_OPEN") == "1":
-            import webbrowser
-            webbrowser.open("http://127.0.0.1:%d" % start_port)
+            _open_browser("http://127.0.0.1:%d" % start_port)
         raise SystemExit(0)
 
     scan_to = int((cfg.get("server") or {}).get("port_scan_to")
@@ -793,9 +810,8 @@ def main() -> None:
 
     # 双击 run.bat 启动时自动打开浏览器（由 run.bat 设置 MEDIA_OPEN=1）
     if os.environ.get("MEDIA_OPEN") == "1":
-        import webbrowser
-        threading.Timer(1.0, lambda: webbrowser.open(
-            "http://127.0.0.1:%d" % port)).start()
+        threading.Timer(1.0, _open_browser,
+                        args=("http://127.0.0.1:%d" % port,)).start()
 
     if (cfg.get("sync") or {}).get("auto_on_start"):
         lid = db.active_library_id()
