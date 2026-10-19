@@ -716,6 +716,20 @@ def _seed_library(cfg: Dict[str, Any]) -> None:
             db.set_kv("active_library_id", str(lid))
 
 
+def _instance_alive(host: str, port: int) -> bool:
+    """探测配置端口上是否已有本应用的活实例。"""
+    probe = "127.0.0.1" if host in ("0.0.0.0", "") else host
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.6)
+    try:
+        s.connect((probe, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
 def main() -> None:
     paths.ensure_dirs()
     db.init_db()
@@ -724,6 +738,19 @@ def main() -> None:
 
     host = (cfg.get("server") or {}).get("host") or "0.0.0.0"
     start_port = int((cfg.get("server") or {}).get("port") or 8000)
+
+    # 已有实例在跑 = 对双击 run.bat 的用户来说不是错误：
+    # 直接把浏览器带到现有实例的页面，然后退出。
+    if _instance_alive(host, start_port):
+        print("=" * 58)
+        print("  已有实例在运行，直接打开页面…")
+        print("  访问地址 : http://127.0.0.1:%d" % start_port)
+        print("=" * 58)
+        if os.environ.get("MEDIA_OPEN") == "1":
+            import webbrowser
+            webbrowser.open("http://127.0.0.1:%d" % start_port)
+        raise SystemExit(0)
+
     scan_to = int((cfg.get("server") or {}).get("port_scan_to")
                   or start_port + 10)
     port = _pick_port(host, start_port, scan_to)
@@ -737,6 +764,17 @@ def main() -> None:
     try:
         httpd = ThreadingHTTPServer((host, port), Handler)
     except OSError as exc:
+        if getattr(exc, "winerror", None) == 10048 or exc.errno == 10048:
+            # 端口被占用 = 已有实例在跑（比如上次没关）。对双击 run.bat 的
+            # 用户来说这不是错误：直接把浏览器带到现有实例的页面即可。
+            print("=" * 58)
+            print("  已有实例在运行，直接打开页面…")
+            print("  访问地址 : http://127.0.0.1:%d" % port)
+            print("=" * 58)
+            if os.environ.get("MEDIA_OPEN") == "1":
+                import webbrowser
+                webbrowser.open("http://127.0.0.1:%d" % port)
+            raise SystemExit(0)
         print("=" * 58)
         print("  [错误] 无法监听 %s:%d —— %s" % (host, port, exc))
         print("  常见原因：端口被占用，或防火墙/权限限制")
