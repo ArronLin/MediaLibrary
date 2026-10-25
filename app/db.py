@@ -16,7 +16,7 @@ from .paths import DB_PATH, ensure_dirs
 _local = threading.local()
 _write_lock = threading.RLock()
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS library (
@@ -75,6 +75,11 @@ CREATE TABLE IF NOT EXISTS item (
                  CHECK(status IN ('pending','ok','failed','unidentified')),
   locked         INTEGER NOT NULL DEFAULT 0,
   hidden         INTEGER NOT NULL DEFAULT 0,
+  adult          INTEGER NOT NULL DEFAULT 0,
+  certification  TEXT,
+  kid_blocked    INTEGER NOT NULL DEFAULT 0,
+  kid_allowed    INTEGER NOT NULL DEFAULT 0,
+  kid_meta_at    TEXT,
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL,
   UNIQUE(library_id, group_key)
@@ -213,6 +218,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # 大系列（超英/自定义合集）里的子系列名。item.franchise_id 指向大系列，
         # series_group 记住它属于哪个子系列，前端据此分节展示。
         ("series_group", "TEXT"),
+        # 青少年模式：TMDB adult 标记、分级、人工屏蔽/放行、分级补全时间
+        ("adult", "INTEGER NOT NULL DEFAULT 0"),
+        ("certification", "TEXT"),
+        ("kid_blocked", "INTEGER NOT NULL DEFAULT 0"),
+        ("kid_allowed", "INTEGER NOT NULL DEFAULT 0"),
+        ("kid_meta_at", "TEXT"),
     ):
         if col not in have:
             conn.execute("ALTER TABLE item ADD COLUMN %s %s" % (col, decl))
@@ -392,6 +403,54 @@ def delete_items(item_ids: List[int]) -> None:
     execute("DELETE FROM item WHERE id IN (%s)" % marks, item_ids)
 
 
+def set_kid_flags(item_ids: List[int], *, blocked: Optional[bool] = None,
+                  allowed: Optional[bool] = None) -> int:
+    """成人模式人工覆盖：屏蔽 / 放行。两者互斥，设置一个会清掉另一个。"""
+    if not item_ids or (blocked is None and allowed is None):
+        return 0
+    sets, params = [], []
+    if blocked is not None:
+        sets.append("kid_blocked=?")
+        params.append(1 if blocked else 0)
+        if blocked:
+            sets.append("kid_allowed=0")
+    if allowed is not None:
+        sets.append("kid_allowed=?")
+        params.append(1 if allowed else 0)
+        if allowed:
+            sets.append("kid_blocked=0")
+    sets.append("updated_at=?")
+    params.append(now_iso())
+    marks = ",".join("?" * len(item_ids))
+    params.extend(item_ids)
+    with _write_lock:
+        conn = connect()
+        cur = conn.execute("UPDATE item SET %s WHERE id IN (%s)"
+                           % (",".join(sets), marks), params)
+        conn.commit()
+        return cur.rowcount
+
+
+def kid_meta_pending(library_id: int) -> int:
+    """统计已有 TMDB ID 但还没补全分级信息的条目数。"""
+    r = row(
+        "SELECT COUNT(*) c FROM item WHERE library_id=? AND tmdb_id IS NOT NULL"
+        " AND status='ok' AND kid_meta_at IS NULL",
+        (library_id,))
+    return r["c"] if r else 0
+
+
+def kid_meta_targets(library_id: int, limit: int = 0) -> List[Dict[str, Any]]:
+    sql = (
+        "SELECT id, tmdb_id, kind, title FROM item WHERE library_id=?"
+        " AND tmdb_id IS NOT NULL AND status='ok' AND kid_meta_at IS NULL"
+        " ORDER BY id"
+    )
+    if limit:
+        sql += " LIMIT %d" % int(limit)
+    return [dict(r) for r in rows(sql, (library_id,))]
+
+
 def list_items(library_id: int, include_hidden: bool = False) -> List[Dict[str, Any]]:
     sql = (
         "SELECT i.*, (SELECT COUNT(*) FROM media_file f "
@@ -424,6 +483,7 @@ _BRIEF_COLS = (
     "rating", "status", "source", "confidence", "genres", "runtime",
     "locked", "hidden", "franchise_id", "series_group",
     "collection_id", "collection_name", "created_at",
+    "adult", "certification", "kid_blocked", "kid_allowed", "kid_meta_at",
 )
 
 

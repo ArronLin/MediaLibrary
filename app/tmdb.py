@@ -48,6 +48,29 @@ class RateLimiter:
 
 _RE_TRAIL_YEAR = re.compile(r"[\s(（]*\b(?:19|20)\d{2}\b[\s)）]*$")
 
+# 分级信息优先取这些地区（美国 → 中国 → 英国 → 香港 → 台湾）
+CERT_REGIONS = ("US", "CN", "GB", "HK", "TW")
+
+
+def _pick_certification(d: Dict[str, Any], kind: str) -> str:
+    """从 release_dates / content_ratings 里按地区优先级取第一个非空分级。"""
+    if kind == "movie":
+        results = (d.get("release_dates") or {}).get("results") or []
+        by_region = {str(r.get("iso_3166_1") or "").upper(): r for r in results}
+        for region in CERT_REGIONS:
+            for rd in (by_region.get(region) or {}).get("release_dates") or []:
+                cert = str(rd.get("certification") or "").strip()
+                if cert:
+                    return cert
+        return ""
+    results = (d.get("content_ratings") or {}).get("results") or []
+    by_region = {str(r.get("iso_3166_1") or "").upper(): r for r in results}
+    for region in CERT_REGIONS:
+        cert = str((by_region.get(region) or {}).get("rating") or "").strip()
+        if cert:
+            return cert
+    return ""
+
 
 def _sim(a: str, b: str) -> float:
     if not a or not b:
@@ -270,12 +293,14 @@ class Tmdb:
     def details(self, tmdb_id: int, kind: str) -> Dict[str, Any]:
         path = "/movie/%d" % tmdb_id if kind == "movie" else "/tv/%d" % tmdb_id
         data = self._request(path, {"language": self.lang,
-                                    "append_to_response": "credits,external_ids"})
+                                    "append_to_response":
+                                    "credits,external_ids,release_dates,content_ratings"})
         out = self._normalize(data, kind)
         if not out.get("overview"):
             try:
                 alt = self._request(path, {"language": self.fallback_lang,
-                                           "append_to_response": "credits,external_ids"})
+                                           "append_to_response":
+                                           "credits,external_ids"})
                 out["overview_en"] = (alt.get("overview") or "").strip()
             except TmdbError:
                 pass
@@ -316,6 +341,17 @@ class Tmdb:
         posters.sort(key=lambda p: (-(p.get("vote_average") or 0),
                                     -(p.get("width") or 0)))
         return self.poster_url(posters[0].get("file_path"), "w500")
+
+    def ratings(self, tmdb_id: int, kind: str) -> Dict[str, Any]:
+        """轻量取 adult 标记与分级，用于存量条目补全（不拉 credits/季集）。"""
+        if kind == "movie":
+            data = self._request("/movie/%d" % int(tmdb_id),
+                                 {"append_to_response": "release_dates"})
+        else:
+            data = self._request("/tv/%d" % int(tmdb_id),
+                                 {"append_to_response": "content_ratings"})
+        return {"adult": bool(data.get("adult")),
+                "certification": _pick_certification(data, kind)}
 
     def collection(self, collection_id: int) -> Dict[str, Any]:
         """系列（合集）详情：名称、简介、封面、成员列表。"""
@@ -390,6 +426,8 @@ class Tmdb:
             "rating": round(float(d.get("vote_average") or 0), 1) or None,
             "runtime": runtime,
             "genres": [g.get("name") for g in (d.get("genres") or [])],
+            "adult": bool(d.get("adult")),
+            "certification": _pick_certification(d, kind),
             "cast": cast,
             "director": " / ".join(directors[:2]) if directors else None,
             "imdb_id": ext.get("imdb_id"),

@@ -69,6 +69,37 @@
     "card_min_width": 150,
     "default_sort": "added"
   },
+  "kids": {
+    "enabled": true,
+    "blocked_genres": [
+      "恐怖",
+      "恐怖片",
+      "惊悚",
+      "情色",
+      "色情",
+      "成人",
+      "血腥"
+    ],
+    "blocked_certifications": [
+      "R",
+      "NC-17",
+      "TV-MA",
+      "18+",
+      "18",
+      "III",
+      "R18",
+      "R18+",
+      "X"
+    ],
+    "blocked_title_keywords": [
+      "色情",
+      "情色",
+      "三级",
+      "成人版",
+      "无码"
+    ],
+    "block_adult_flag": true
+  },
   "super_series": [
     {
       "name": "漫威超英电影",

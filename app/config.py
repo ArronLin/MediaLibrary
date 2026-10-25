@@ -66,6 +66,16 @@ DEFAULT_CONFIG = {
     },
     "sync": {"auto_on_start": False, "scrape_workers": 1},
     "ui": {"card_min_width": 150, "default_sort": "added"},
+    # 青少年模式（默认模式）过滤策略。成人模式账号密码存数据库 kv，不在此处。
+    "kids": {
+        "enabled": True,
+        "blocked_genres": ["恐怖", "恐怖片", "惊悚", "情色", "色情", "成人", "血腥"],
+        "blocked_certifications": [
+            "R", "NC-17", "TV-MA", "18+", "18", "III", "R18", "R18+", "X",
+        ],
+        "blocked_title_keywords": ["色情", "情色", "三级", "成人版", "无码"],
+        "block_adult_flag": True,
+    },
     # 用户自定义「大系列」：把若干 TMDB 子系列 / 单片收进一个总系列，
     # 打开总系列后再按子系列分组展示。例如：
     #   "super_series": [{

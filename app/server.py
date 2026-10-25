@@ -15,7 +15,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from . import config, db, franchise, images, paths, player, sync
+from . import config, db, franchise, images, kids, paths, player, sync
 
 ROUTES = []  # type: List[Tuple[str, re.Pattern, Callable]]
 
@@ -41,7 +41,7 @@ def route(method: str, pattern: str):
 
 def _brief(it: Dict[str, Any]) -> Dict[str, Any]:
     poster = it.get("poster_path")
-    return {
+    b = {
         "id": it["id"],
         "title": it.get("title") or "",
         "original_title": it.get("original_title") or "",
@@ -66,7 +66,37 @@ def _brief(it: Dict[str, Any]) -> Dict[str, Any]:
         "collection_id": it.get("collection_id"),
         "collection_name": it.get("collection_name") or "",
         "added_at": it.get("added_at") or it.get("created_at") or "",
+        "blocked": bool(it.get("kid_blocked")),
+        "allowed": bool(it.get("kid_allowed")),
+        "adult": bool(it.get("adult")),
+        "certification": it.get("certification") or "",
     }
+    reasons = kids.reasons_of_brief(b)
+    b["kid_reasons"] = reasons
+    b["kid_hidden"] = bool(reasons)
+    return b
+
+
+def _mode(h: "Handler") -> str:
+    return kids.mode_of(h.headers.get("Cookie"))
+
+
+def _visible_briefs(library_id: int, mode: str) -> List[Dict[str, Any]]:
+    """海报墙条目；青少年模式下丢掉被过滤的条目（服务端过滤，不下发前端）。"""
+    items = [_brief(r) for r in db.list_item_briefs(library_id, include_hidden=False)]
+    if mode == "kid":
+        items = [i for i in items if not i["kid_hidden"]]
+    return items
+
+
+def adult_only(fn: Callable) -> Callable:
+    """管理类接口只允许成人模式调用。"""
+    def wrapper(h, m, q):
+        if _mode(h) != "adult":
+            return h.err("请先在成人模式下登录", 403, "adult_required")
+        return fn(h, m, q)
+    wrapper.__name__ = fn.__name__
+    return wrapper
 
 
 def _backdrop_src(it: Dict[str, Any]) -> str:
@@ -92,20 +122,32 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _send(self, body: bytes, ctype: str, code: int = 200,
-              cache: str = "no-store") -> None:
+              cache: str = "no-store",
+              headers: Optional[Dict[str, str]] = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def json(self, obj: Any, code: int = 200) -> None:
+    def json(self, obj: Any, code: int = 200,
+             headers: Optional[Dict[str, str]] = None) -> None:
         self._send(json.dumps(obj, ensure_ascii=False).encode("utf-8"),
-                   "application/json; charset=utf-8", code)
+                   "application/json; charset=utf-8", code, headers=headers)
+
+    def cookie(self, name: str) -> Optional[str]:
+        cookie = self.headers.get("Cookie")
+        for part in str(cookie or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == name and v:
+                return v
+        return None
 
     def err(self, msg: str, code: int = 400, error: str = "bad_request") -> None:
         self.json({"ok": False, "error": error, "message": msg}, code)
@@ -200,6 +242,96 @@ def health(h: Handler, m, q):
     })
 
 
+# ==================================================================== 模式
+@route("GET", r"/api/mode")
+def get_mode(h: Handler, m, q):
+    mode = _mode(h)
+    pol = kids.policy()
+    cfg = config.load()
+    out = {
+        "ok": True,
+        "mode": mode,
+        "username": kids.DEFAULT_USERNAME,
+        "password_is_default": kids.password_is_default(),
+        "kids_enabled": bool(pol.get("enabled")),
+        "policy": {k: v for k, v in pol.items() if k != "enabled"},
+        "default_sort": (cfg.get("ui") or {}).get("default_sort") or "added",
+    }
+    if mode == "adult":
+        lib = _active_lib()
+        out["meta_pending"] = db.kid_meta_pending(lib["id"]) if lib else 0
+        out["meta_state"] = sync.kid_meta_state()
+    h.json(out)
+
+
+@route("POST", r"/api/mode/login")
+def mode_login(h: Handler, m, q):
+    wait = kids.login_locked(h.client_ip)
+    if wait:
+        return h.json({"ok": False, "error": "locked",
+                       "message": "尝试过于频繁，请 %d 秒后再试" % wait}, 429)
+    b = h.body()
+    if not kids.verify_login(b.get("username"), b.get("password") or ""):
+        kids.record_login_failure(h.client_ip)
+        return h.err("用户名或密码错误", 401, "bad_credentials")
+    kids.clear_login_failures(h.client_ip)
+    token = kids.new_session()
+    h.json({"ok": True, "mode": "adult",
+            "password_is_default": kids.password_is_default()},
+           headers={"Set-Cookie": kids.session_cookie(token)})
+
+
+@route("POST", r"/api/mode/logout")
+def mode_logout(h: Handler, m, q):
+    kids.drop_session(kids.token_from_cookie(h.headers.get("Cookie")))
+    h.json({"ok": True, "mode": "kid"},
+           headers={"Set-Cookie": kids.clear_cookie()})
+
+
+@route("POST", r"/api/mode/password")
+@adult_only
+def mode_password(h: Handler, m, q):
+    b = h.body()
+    res = kids.change_password(str(b.get("old") or ""), str(b.get("new") or ""))
+    h.json(res, 200 if res.get("ok") else 403)
+
+
+@route("POST", r"/api/kids/block")
+@adult_only
+def kids_block(h: Handler, m, q):
+    b = h.body()
+    ids = [int(i) for i in (b.get("ids") or []) if str(i).isdigit()]
+    if not ids:
+        return h.err("未选择条目")
+    blocked = bool(b.get("blocked", True))
+    n = db.set_kid_flags(ids, blocked=blocked)
+    sync.publish({"type": "item_updated", "ids": ids})
+    h.json({"ok": True, "count": n, "blocked": blocked})
+
+
+@route("POST", r"/api/kids/allow")
+@adult_only
+def kids_allow(h: Handler, m, q):
+    b = h.body()
+    ids = [int(i) for i in (b.get("ids") or []) if str(i).isdigit()]
+    if not ids:
+        return h.err("未选择条目")
+    allowed = bool(b.get("allowed", True))
+    n = db.set_kid_flags(ids, allowed=allowed)
+    sync.publish({"type": "item_updated", "ids": ids})
+    h.json({"ok": True, "count": n, "allowed": allowed})
+
+
+@route("POST", r"/api/kids/backfill")
+@adult_only
+def kids_backfill(h: Handler, m, q):
+    lib = _active_lib()
+    if not lib:
+        return h.err("请先添加媒体库")
+    res = sync.start_kid_meta_backfill(lib["id"])
+    h.json(res, 202 if res.get("ok") else 409)
+
+
 @route("GET", r"/api/stats")
 def stats(h: Handler, m, q):
     lib = _active_lib()
@@ -212,7 +344,19 @@ def genres(h: Handler, m, q):
     lib = _active_lib()
     if not lib:
         return h.json({"ok": True, "genres": []})
-    h.json({"ok": True, "genres": db.genre_counts(lib["id"])})
+    mode = _mode(h)
+    if mode == "adult":
+        return h.json({"ok": True, "genres": db.genre_counts(lib["id"])})
+    # 青少年模式：只统计可见条目的类型，避免通过类型数量推断被屏蔽内容
+    tally: Dict[str, int] = {}
+    for it in _visible_briefs(lib["id"], mode):
+        for g in it.get("genres") or []:
+            g = str(g or "").strip()
+            if g:
+                tally[g] = tally.get(g, 0) + 1
+    out = [{"name": k, "count": v} for k, v in tally.items()]
+    out.sort(key=lambda x: (-x["count"], x["name"]))
+    h.json({"ok": True, "genres": out})
 
 
 # ==================================================================== 系列
@@ -249,8 +393,30 @@ def franchises(h: Handler, m, q):
     lib = _active_lib()
     if not lib:
         return h.json({"ok": True, "franchises": []})
+    mode = _mode(h)
     rows = db.list_franchises(lib["id"])
-    h.json({"ok": True, "franchises": [_franchise_brief(f) for f in rows]})
+    if mode == "adult":
+        return h.json({"ok": True,
+                       "franchises": [_franchise_brief(f) for f in rows]})
+    # 青少年模式：按可见条目重算每个系列的统计，空系列直接丢弃
+    groups: Dict[int, List[Dict[str, Any]]] = {}
+    for b in _visible_briefs(lib["id"], mode):
+        fid = b.get("franchise_id")
+        if fid:
+            groups.setdefault(int(fid), []).append(b)
+    out = []
+    for f in rows:
+        members = groups.get(int(f["id"])) or []
+        if not members:
+            continue
+        fb = _franchise_brief(f)
+        years = [x["year"] for x in members if x.get("year")]
+        fb["item_count"] = len(members)
+        fb["min_year"] = min(years) if years else None
+        fb["max_year"] = max(years) if years else None
+        out.append(fb)
+    out.sort(key=lambda x: (-x["item_count"], x["name"]))
+    h.json({"ok": True, "franchises": out})
 
 
 @route("GET", r"/api/franchises/(\d+)")
@@ -259,8 +425,18 @@ def franchise_detail(h: Handler, m, q):
     f = db.get_franchise(fid)
     if not f:
         return h.err("系列不存在", 404)
+    mode = _mode(h)
     members = [_brief(dict(r)) for r in db.franchise_members(fid)]
+    if mode == "kid":
+        members = [x for x in members if not x["kid_hidden"]]
+        if not members:
+            return h.err("系列不存在", 404)
     out = _franchise_brief(f)
+    if mode == "kid":
+        years = [x["year"] for x in members if x.get("year")]
+        out["item_count"] = len(members)
+        out["min_year"] = min(years) if years else None
+        out["max_year"] = max(years) if years else None
     out["members"] = members
     # 大系列（source=super）：把成员按子系列分节，前端分块渲染
     if str(f.get("source") or "") == "super":
@@ -277,6 +453,7 @@ def franchise_detail(h: Handler, m, q):
 
 
 @route("POST", r"/api/franchises/rebuild")
+@adult_only
 def franchise_rebuild(h: Handler, m, q):
     lib = _active_lib()
     if not lib:
@@ -289,10 +466,15 @@ def franchise_rebuild(h: Handler, m, q):
 @route("GET", r"/api/libraries")
 def libraries(h: Handler, m, q):
     libs = db.list_libraries()
+    if _mode(h) == "kid":
+        # 用可见条目数替换真实条目数，避免通过数量推断被屏蔽内容
+        for lib in libs:
+            lib["item_count"] = len(_visible_briefs(lib["id"], "kid"))
     h.json({"ok": True, "libraries": libs, "active_id": db.active_library_id()})
 
 
 @route("POST", r"/api/libraries")
+@adult_only
 def add_library(h: Handler, m, q):
     b = h.body()
     path = (b.get("path") or "").strip().strip('"')
@@ -313,6 +495,7 @@ def add_library(h: Handler, m, q):
 
 
 @route("PATCH", r"/api/libraries/(\d+)")
+@adult_only
 def edit_library(h: Handler, m, q):
     lid = int(m.group(1))
     lib = db.get_library(lid)
@@ -342,6 +525,7 @@ def activate_library(h: Handler, m, q):
 
 
 @route("DELETE", r"/api/libraries/(\d+)")
+@adult_only
 def remove_library(h: Handler, m, q):
     lid = int(m.group(1))
     db.delete_library(lid)
@@ -349,6 +533,7 @@ def remove_library(h: Handler, m, q):
 
 
 @route("POST", r"/api/folders/pick")
+@adult_only
 def pick_folder(h: Handler, m, q):
     """在本机弹出目录选择框（仅限本机请求）。"""
     if not player.is_local(h.client_ip):
@@ -373,8 +558,7 @@ def list_items(h: Handler, m, q):
     lib = _active_lib()
     if not lib:
         return h.json({"ok": True, "items": [], "total": 0, "library": None})
-    rows = db.list_item_briefs(lib["id"], include_hidden=False)
-    items = [_brief(r) for r in rows]
+    items = _visible_briefs(lib["id"], _mode(h))
     kind = (q.get("kind") or [""])[0]
     if kind in ("movie", "series", "collection"):
         items = [i for i in items if i["kind"] == kind]
@@ -397,6 +581,9 @@ def item_detail(h: Handler, m, q):
     iid = int(m.group(1))
     it = db.get_item(iid)
     if not it:
+        return h.err("条目不存在", 404)
+    mode = _mode(h)
+    if mode == "kid" and _brief(it)["kid_hidden"]:
         return h.err("条目不存在", 404)
     lib = db.get_library(it["library_id"]) or {}
     files = db.files_for_item(iid)
@@ -429,6 +616,8 @@ def play_item(h: Handler, m, q):
     it = db.get_item(iid)
     if not it:
         return h.err("条目不存在", 404)
+    if _mode(h) == "kid" and _brief(it)["kid_hidden"]:
+        return h.err("条目不存在", 404)
     b = h.body()
     file_id = b.get("file_id")
     files = db.files_for_item(iid)
@@ -458,6 +647,7 @@ def play_item(h: Handler, m, q):
 
 
 @route("POST", r"/api/items/remove")
+@adult_only
 def remove_items(h: Handler, m, q):
     b = h.body()
     ids = [int(i) for i in (b.get("ids") or []) if str(i).isdigit()]
@@ -482,6 +672,7 @@ def remove_items(h: Handler, m, q):
 
 
 @route("GET", r"/api/ignored")
+@adult_only
 def list_ignored(h: Handler, m, q):
     lib = _active_lib()
     if not lib:
@@ -490,6 +681,7 @@ def list_ignored(h: Handler, m, q):
 
 
 @route("POST", r"/api/ignored/restore")
+@adult_only
 def restore_ignored(h: Handler, m, q):
     lib = _active_lib()
     if not lib:
@@ -500,6 +692,7 @@ def restore_ignored(h: Handler, m, q):
 
 
 @route("POST", r"/api/items/(\d+)/rebind")
+@adult_only
 def rebind_item(h: Handler, m, q):
     iid = int(m.group(1))
     b = h.body()
@@ -517,6 +710,7 @@ def rebind_item(h: Handler, m, q):
 
 
 @route("POST", r"/api/items/(\d+)/refresh")
+@adult_only
 def refresh_item(h: Handler, m, q):
     iid = int(m.group(1))
     it = db.get_item(iid)
@@ -532,6 +726,7 @@ def refresh_item(h: Handler, m, q):
 
 
 @route("POST", r"/api/items/(\d+)/reveal")
+@adult_only
 def reveal_item(h: Handler, m, q):
     iid = int(m.group(1))
     it = db.get_item(iid)
@@ -548,6 +743,7 @@ def reveal_item(h: Handler, m, q):
 
 
 @route("POST", r"/api/items/(\d+)/hide")
+@adult_only
 def hide_item(h: Handler, m, q):
     iid = int(m.group(1))
     hidden = bool(h.body().get("hidden", True))
@@ -557,6 +753,7 @@ def hide_item(h: Handler, m, q):
 
 # ==================================================================== 同步
 @route("POST", r"/api/sync")
+@adult_only
 def start_sync(h: Handler, m, q):
     b = h.body()
     lib = _active_lib()
@@ -576,6 +773,7 @@ def sync_status(h: Handler, m, q):
 
 
 @route("POST", r"/api/sync/retry-failed")
+@adult_only
 def retry_failed(h: Handler, m, q):
     lib = _active_lib()
     b = h.body()
@@ -611,12 +809,14 @@ def events(h: Handler, m, q):
 
 # ==================================================================== 配置
 @route("GET", r"/api/config")
+@adult_only
 def get_config(h: Handler, m, q):
     h.json({"ok": True, "config": config.public_view(),
             "players": player.detect(config.load())})
 
 
 @route("POST", r"/api/config")
+@adult_only
 def set_config(h: Handler, m, q):
     b = h.body()
     patch: Dict[str, Any] = {}
@@ -752,6 +952,7 @@ def _instance_alive(host: str, port: int) -> bool:
 def main() -> None:
     paths.ensure_dirs()
     db.init_db()
+    kids.ensure_password()
     cfg = config.load()
     _seed_library(cfg)
 

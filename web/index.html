@@ -10,7 +10,7 @@
 <body>
 
 <header class="topbar">
-  <div class="brand">
+  <div class="brand" id="brand">
     <span class="logo">🎬</span>
     <span class="brandname">影视库</span>
   </div>
@@ -54,6 +54,7 @@
   <button id="setBtn" class="btn ghost icon" title="设置">
     <svg viewBox="0 0 24 24" width="17" height="17"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L14.9 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.4 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.9h4l.4-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5"/></svg>
   </button>
+  <button id="modeOut" class="btn ghost sm hidden" title="退出成人模式">退出</button>
 </header>
 
 <div id="progress" class="progress hidden">
@@ -80,6 +81,8 @@
   <span id="selCount">已选 0 项</span>
   <button class="btn ghost sm" id="selAll">全选</button>
   <button class="btn ghost sm" id="selInv">反选</button>
+  <button class="btn ghost sm" id="selBlock">屏蔽</button>
+  <button class="btn ghost sm" id="selUnblock">取消屏蔽</button>
   <button class="btn danger sm" id="selDel">移除所选</button>
   <button class="btn ghost sm" id="selExit">退出选择</button>
 </div>
@@ -187,12 +190,61 @@
   </section>
 
   <section>
+    <h3>青少年模式</h3>
+    <div id="adultPane" class="kids-pane">
+      <div class="row">
+        <label>修改密码</label>
+        <input id="pwOld" type="password" placeholder="原密码" autocomplete="off">
+        <input id="pwNew" type="password" placeholder="新密码（至少 6 位）" autocomplete="off">
+        <input id="pwNew2" type="password" placeholder="确认新密码" autocomplete="off">
+        <button class="btn ghost sm" id="pwSave">保存</button>
+      </div>
+      <p class="tip" id="pwTip">初始密码为 <code>changeme</code>，建议尽快修改。</p>
+      <div class="row">
+        <label>分级补全</label>
+        <button class="btn ghost sm" id="metaBackfill">补全分级信息</button>
+        <span id="metaState" class="tag">—</span>
+      </div>
+      <p class="tip">存量条目需要联网补一次 TMDB 分级，青少年模式的过滤才更准确。只更新分级字段，不改动其它信息。</p>
+      <div class="kids-policy" id="kidsPolicy"></div>
+    </div>
+  </section>
+
+  <section>
     <h3>已移除的条目</h3>
     <div id="ignoredList" class="ignored-list"></div>
   </section>
 
   <div class="dlg-actions">
     <button class="btn primary" id="saveCfg">保存设置</button>
+  </div>
+</dialog>
+
+<!-- 家长验证 -->
+<dialog id="modeDlg" class="dlg mode">
+  <button class="dlg-close" id="mClose">×</button>
+  <h2 id="mTitle">家长验证</h2>
+
+  <div id="loginPane">
+    <div class="row">
+      <label>用户名</label>
+      <input id="loginUser" value="sysadmin" autocomplete="username">
+    </div>
+    <div class="row">
+      <label>密码</label>
+      <input id="loginPass" type="password" placeholder="密码" autocomplete="current-password">
+    </div>
+    <div class="dlg-actions">
+      <button class="btn primary" id="loginBtn">登录</button>
+    </div>
+  </div>
+
+  <div id="adultPaneMode" class="hidden">
+    <p class="tip">当前已登录成人模式。</p>
+    <div class="dlg-actions">
+      <button class="btn ghost" id="modeSettings">打开设置</button>
+      <button class="btn primary" id="logoutBtn">退出成人模式</button>
+    </div>
   </div>
 </dialog>
 

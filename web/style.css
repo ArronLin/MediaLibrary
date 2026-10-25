@@ -706,3 +706,51 @@ body.select-mode .card .del { display: none; }
 @media (max-width: 860px) {
   #sortDirBtn { min-width: 30px; }
 }
+
+/* ------------------------------------------------------------ 青少年模式 */
+.brand { user-select: none; }
+
+/* 兜底：即使 JS 出问题，青少年模式也不露出管理入口 */
+body.kid-mode #setBtn,
+body.kid-mode #syncBtn,
+body.kid-mode #selBtn,
+body.kid-mode #unidBtn,
+body.kid-mode #modeOut,
+body.kid-mode #selbar,
+body.kid-mode .card .chk,
+body.kid-mode .card .del { display: none !important; }
+
+.card.kidblocked { opacity: .62; }
+
+/* 与左上角的类型角标错开，避免重叠 */
+.tagkind.blk,
+.tagkind.allow,
+.tagkind.kidf { top: 34px; left: 8px; }
+.tagkind.blk { color: #ff8b8b; }
+.tagkind.allow { color: #6ee7b7; }
+.tagkind.kidf { color: #c3cad9; }
+
+.dlg.mode { max-width: 460px; }
+.dlg.mode .row label { flex: 0 0 64px; }
+.dlg.mode .tip.warn { color: #ffb4b4; }
+
+.kids-pane .kids-chips {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin-top: 6px;
+}
+.kids-pane .kids-chips b {
+  flex: 0 0 76px;
+  color: var(--muted-2);
+  font-weight: 600;
+}
+.kid-reasons {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: #ffb4b4;
+}

@@ -683,6 +683,12 @@ def _save_metadata(item_id: int, r: Dict[str, Any]) -> None:
         "confidence": r.get("confidence") or 0,
         "status": r.get("status") or "ok",
     }
+    # 只有 TMDB 结果带 adult 标记；写它的同时记下分级补全时间，
+    # 避免存量补全流程再重复请求一遍
+    if "adult" in r:
+        all_fields["adult"] = 1 if r.get("adult") else 0
+        all_fields["certification"] = r.get("certification") or ""
+        all_fields["kid_meta_at"] = db.now_iso()
     fields = {k: v for k, v in all_fields.items() if v is not None}
     if r.get("status") == "ok":
         # 完整刮削成功：以本次结果为准，空字段也要覆盖清掉。
@@ -760,3 +766,81 @@ def rebind(item_id: int, tmdb_id: int) -> bool:
     db.set_task_state(item_id, "done")
     publish({"type": "item_updated", "id": item_id})
     return True
+
+
+# ------------------------------------------------------------ 分级补全
+# 存量条目入库时还没存 adult/分级，这里联网补一次（只更新这三列，
+# 不碰标题/海报等已有元数据）
+_kid_meta_lock = threading.Lock()
+_kid_meta_state = {
+    "running": False,
+    "done": 0,
+    "total": 0,
+    "error": "",
+}
+
+
+def kid_meta_state() -> Dict[str, Any]:
+    with _kid_meta_lock:
+        return dict(_kid_meta_state)
+
+
+def start_kid_meta_backfill(library_id: int) -> Dict[str, Any]:
+    cfg = config.load()
+    if not (cfg.get("tmdb") or {}).get("api_key"):
+        return {"ok": False, "error": "no_key",
+                "message": "未配置 TMDB API Key，无法补全分级"}
+    total = db.kid_meta_pending(library_id)
+    with _kid_meta_lock:
+        if _kid_meta_state["running"]:
+            return {"ok": False, "error": "running",
+                    "message": "分级补全正在进行", "total": _kid_meta_state["total"],
+                    "done": _kid_meta_state["done"]}
+        _kid_meta_state.update({"running": True, "done": 0, "total": total,
+                                "error": ""})
+    if not total:
+        with _kid_meta_lock:
+            _kid_meta_state["running"] = False
+        return {"ok": True, "total": 0, "message": "分级信息已是最新"}
+    threading.Thread(target=_run_kid_meta_backfill, args=(library_id,),
+                     daemon=True).start()
+    return {"ok": True, "total": total}
+
+
+def _run_kid_meta_backfill(library_id: int) -> None:
+    cfg = config.load()
+    client = tmdb.Tmdb(cfg.get("tmdb") or {})
+    try:
+        targets = db.kid_meta_targets(library_id)
+        total = len(targets)
+        done = 0
+        for it in targets:
+            kind = "tv" if it["kind"] == "series" else "movie"
+            try:
+                r = client.ratings(int(it["tmdb_id"]), kind)
+                db.update_item(it["id"],
+                               adult=1 if r.get("adult") else 0,
+                               certification=r.get("certification") or "",
+                               kid_meta_at=db.now_iso())
+            except tmdb.ApiKeyError:
+                raise
+            except tmdb.TmdbError as exc:
+                # 单条失败不中断：下一轮补全还会再试
+                print("[kids] 分级补全失败 %s: %s" % (it.get("title"), exc))
+                continue
+            done += 1
+            with _kid_meta_lock:
+                _kid_meta_state["done"] = done
+            if done % 10 == 0 or done == total:
+                publish({"type": "kid_meta", "done": done, "total": total})
+        publish({"type": "kid_meta", "done": done, "total": total})
+        publish({"type": "kid_meta_done", "done": done, "total": total})
+        with _kid_meta_lock:
+            _kid_meta_state.update({"running": False, "done": done,
+                                    "total": total, "error": ""})
+    except Exception as exc:
+        traceback.print_exc()
+        with _kid_meta_lock:
+            _kid_meta_state.update({"running": False, "error": str(exc)})
+        publish({"type": "kid_meta_done", "done": _kid_meta_state["done"],
+                 "total": _kid_meta_state["total"], "error": str(exc)})

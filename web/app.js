@@ -14,7 +14,28 @@ const S = {
   unidOnly: false, genre: '',
   selectMode: false, selected: new Set(),
   cfg: null, players: [], exclude: [], polling: null, reloadTimer: null,
+  mode: 'kid', kidsPolicy: null, username: 'sysadmin',
+  passwordIsDefault: true, metaPending: 0,
 };
+
+function isAdult() { return S.mode === 'adult'; }
+
+/* 根据当前模式显示/隐藏管理入口 */
+function applyMode() {
+  const kid = !isAdult();
+  document.body.classList.toggle('kid-mode', kid);
+  const out = $('#modeOut');
+  if (out) out.classList.toggle('hidden', kid);
+  ['#setBtn', '#syncBtn', '#selBtn', '#unidBtn'].forEach(sel => {
+    const el = $(sel);
+    if (el) el.classList.toggle('hidden', kid);
+  });
+  ['#selBlock', '#selUnblock', '#selDel'].forEach(sel => {
+    const el = $(sel);
+    if (el) el.classList.toggle('hidden', kid);
+  });
+  if (kid && S.selectMode) toggleSelectMode(false);
+}
 
 /* ------------------------------------------------------------------ 工具 */
 async function api(path, opts = {}) {
@@ -214,7 +235,9 @@ function renderWall() {
     wall.innerHTML = '';
     empty.classList.remove('hidden');
     $('#emptyTitle').textContent = '还没有配置媒体库';
-    $('#emptyDesc').textContent = '指定一个包含电影或剧集视频的文件夹，程序会扫描并联网刮削海报与简介。';
+    $('#emptyDesc').textContent = isAdult()
+      ? '指定一个包含电影或剧集视频的文件夹，程序会扫描并联网刮削海报与简介。'
+      : '请让家长切换到成人模式，配置媒体库目录。';
     $('#emptyAction').textContent = '配置媒体库';
     return;
   }
@@ -225,7 +248,8 @@ function renderWall() {
     $('#emptyTitle').textContent = has ? '没有匹配的条目' : '媒体库还是空的';
     $('#emptyDesc').textContent = has
       ? '换个关键词或筛选条件试试。'
-      : '点击右上角「增量更新」，程序会扫描目录并刮削海报。';
+      : (isAdult() ? '点击右上角「增量更新」，程序会扫描目录并刮削海报。'
+                   : '请让家长切换到成人模式，执行「增量更新」扫描影片。');
     $('#emptyAction').textContent = has ? '清空筛选' : '开始扫描';
     return;
   }
@@ -240,15 +264,26 @@ function itemCard(it) {
   let tag = '';
   if (it.kind === 'series') tag = `<div class="tagkind ep">剧集${it.ep_count ? ' ' + it.ep_count : ''}</div>`;
   else if (it.kind === 'collection') tag = `<div class="tagkind">合集 ${it.file_count}</div>`;
+  const adult = isAdult();
+  let kidTag = '';
+  if (adult) {
+    if (it.blocked) {
+      kidTag = '<div class="tagkind blk" title="已在青少年模式屏蔽">已屏蔽</div>';
+    } else if (it.allowed) {
+      kidTag = '<div class="tagkind allow" title="已放行，青少年模式可见">已放行</div>';
+    } else if ((it.kid_reasons || []).length) {
+      kidTag = `<div class="tagkind kidf" title="${esc(it.kid_reasons.join('；'))}">青少年过滤</div>`;
+    }
+  }
   const sel = S.selected.has(it.id);
   const sub = [it.year || '', (it.genres || []).slice(0, 2).join('/')].filter(Boolean).join(' · ');
-  return `<article class="card${sel ? ' selected' : ''}${it.status === 'unidentified' ? ' unid' : ''}"
+  return `<article class="card${sel ? ' selected' : ''}${it.status === 'unidentified' ? ' unid' : ''}${adult && it.blocked ? ' kidblocked' : ''}"
       data-id="${it.id}" tabindex="0">
     <div class="poster"><img loading="lazy" decoding="async" src="${esc(it.poster)}"
       alt="${esc(it.title)}" onerror="this.onerror=null;this.src='/api/placeholder?title=${encodeURIComponent(it.title)}'"></div>
-    ${rating}${tag}
-    <div class="chk${sel ? ' on' : ''}" data-chk="${it.id}"></div>
-    <button class="del" data-del="${it.id}" title="从媒体库移除">🗑</button>
+    ${rating}${tag}${kidTag}
+    ${adult ? `<div class="chk${sel ? ' on' : ''}" data-chk="${it.id}"></div>` : ''}
+    ${adult ? `<button class="del" data-del="${it.id}" title="从媒体库移除">🗑</button>` : ''}
     <div class="card-foot"><h3 title="${esc(it.title)}">${esc(it.title)}</h3><p>${esc(sub)}</p></div>
   </article>`;
 }
@@ -278,13 +313,13 @@ function franchiseCard(e) {
 function renderStats() {
   const unid = S.items.filter(i => i.status === 'unidentified').length;
   const btn = $('#unidBtn');
-  if (unid > 0) {
+  if (unid > 0 && isAdult()) {
     btn.classList.remove('hidden');
     btn.innerHTML = `未识别 <b>${unid}</b>`;
     btn.classList.toggle('on', S.unidOnly);
   } else {
     btn.classList.add('hidden');
-    S.unidOnly = false;
+    if (!isAdult()) S.unidOnly = false;
   }
   renderUnidHint(unid);
 }
@@ -380,6 +415,18 @@ async function openDetail(id) {
       </div>`).join('') + `</div>`;
   }
 
+  const adult = isAdult();
+  const kidActions = !adult ? '' : `
+            <button class="btn ghost" id="dRefresh">重新刮削</button>
+            <button class="btn ghost" id="dReset" title="按文件名重新识别，适用于刮成了别的片子">按文件名重刮</button>
+            <button class="btn ghost" id="dRebind">改绑 TMDB</button>
+            <button class="btn ghost" id="dReveal">定位文件</button>
+            <button class="btn ghost" id="dBlock">${it.blocked ? '取消屏蔽' : '屏蔽'}</button>`;
+  const allowBtn = adult && (it.allowed || (it.kid_reasons || []).length)
+    ? `<button class="btn ghost" id="dAllow">${it.allowed ? '取消放行' : '放行'}</button>` : '';
+  const kidInfo = adult && (it.kid_reasons || []).length
+    ? `<span class="kid-reasons">青少年模式：${esc(it.kid_reasons.join('；'))}</span>` : '';
+
   const overview = it.overview || it.overview_en
     || '<span style="color:var(--muted-2)">暂无简介（该条目可能来自豆瓣兜底或尚未刮削）</span>';
 
@@ -393,11 +440,10 @@ async function openDetail(id) {
           <div class="chips">${chips.join('')}</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn primary" data-play="${(eps[0] || (it.files || [])[0] || {}).id || ''}">▶ 播放</button>
-            <button class="btn ghost" id="dRefresh">重新刮削</button>
-            <button class="btn ghost" id="dReset" title="按文件名重新识别，适用于刮成了别的片子">按文件名重刮</button>
-            <button class="btn ghost" id="dRebind">改绑 TMDB</button>
-            <button class="btn ghost" id="dReveal">定位文件</button>
+            ${kidActions}
+            ${allowBtn}
           </div>
+          ${kidInfo}
         </div>
       </div>
     </div>
@@ -408,8 +454,8 @@ async function openDetail(id) {
       ${epHtml}
       ${fileHtml}
       <div class="d-actions">
-        <button class="btn danger" id="dRemove">从媒体库移除</button>
-        ${it.tmdb_id ? `<span style="color:var(--muted-2);font-size:11.5px;align-self:center">TMDB #${it.tmdb_id}${it.locked ? ' · 已锁定' : ''}</span>` : ''}
+        ${adult ? '<button class="btn danger" id="dRemove">从媒体库移除</button>' : ''}
+        ${it.tmdb_id && adult ? `<span style="color:var(--muted-2);font-size:11.5px;align-self:center">TMDB #${it.tmdb_id}${it.locked ? ' · 已锁定' : ''}</span>` : ''}
       </div>
     </div>`;
 
@@ -418,6 +464,8 @@ async function openDetail(id) {
 
   const play = (fileId) => playItem(it.id, fileId);
   $$('[data-play]', dlg).forEach(b => b.onclick = () => play(b.dataset.play));
+  if (!adult) return;
+
   $('#dRefresh').onclick = async () => {
     await api(`/api/items/${it.id}/refresh`, { method: 'POST', body: {} });
     toast('已加入重新刮削队列');
@@ -447,6 +495,26 @@ async function openDetail(id) {
     toast('已在资源管理器中定位（仅本机有效）');
     api(`/api/items/${it.id}/reveal`, { method: 'POST', body: {} });
   };
+  $('#dBlock').onclick = async () => {
+    const blocked = !it.blocked;
+    const { data } = await api('/api/kids/block',
+      { method: 'POST', body: { ids: [it.id], blocked } });
+    if (!data.ok) return toast(data.message || '操作失败', 'err');
+    toast(blocked ? '已在青少年模式屏蔽' : '已取消屏蔽', 'ok');
+    await loadItems();
+    setTimeout(() => openDetail(it.id), 250);
+  };
+  if ($('#dAllow')) {
+    $('#dAllow').onclick = async () => {
+      const allowed = !it.allowed;
+      const { data } = await api('/api/kids/allow',
+        { method: 'POST', body: { ids: [it.id], allowed } });
+      if (!data.ok) return toast(data.message || '操作失败', 'err');
+      toast(allowed ? '已放行，青少年模式可见' : '已取消放行', 'ok');
+      await loadItems();
+      setTimeout(() => openDetail(it.id), 250);
+    };
+  }
   $('#dRemove').onclick = () => {
     dlg.close();
     confirmRemove([it.id], [it.title]);
@@ -569,6 +637,7 @@ function confirmRemove(ids, titles) {
 
 /* ------------------------------------------------------------------ 多选 */
 function toggleSelectMode(on) {
+  if (on && !isAdult()) { toast('请先进入成人模式', 'err'); return; }
   S.selectMode = on;
   document.body.classList.toggle('select-mode', on);
   $('#selbar').classList.toggle('hidden', !on);
@@ -628,6 +697,7 @@ function stopPolling() {
 }
 
 async function doSync(full) {
+  if (!isAdult()) { toast('请先进入成人模式再执行扫描', 'err'); return; }
   const { data } = await api('/api/sync', { method: 'POST', body: { full: !!full } });
   if (data.ok) {
     showProgress();
@@ -672,13 +742,108 @@ function connectSSE() {
       setProgress(0, 1, '失败：' + d.message);
       stopPolling();
       toast(d.message || '同步失败', 'err');
+    } else if (d.type === 'kid_meta') {
+      $('#metaState').textContent = `补全中 ${d.done}/${d.total}`;
+    } else if (d.type === 'kid_meta_done') {
+      S.metaPending = Math.max(0, (d.total || 0) - (d.done || 0));
+      if (S.metaPending === 0) S.metaPending = 0;
+      $('#metaState').textContent = d.error
+        ? ('补全中断：' + d.error) : `补全完成 ${d.done}/${d.total}`;
+      if (d.error) toast('分级补全中断：' + d.error, 'err');
+      scheduleReload();
     }
   };
   es.onerror = () => { /* 浏览器会自动重连，轮询兜底 */ };
 }
 
+/* ------------------------------------------------------------------ 模式 */
+async function refreshMode() {
+  const { data } = await api('/api/mode');
+  S.mode = data.mode || 'kid';
+  S.kidsPolicy = data.policy || null;
+  S.username = data.username || 'sysadmin';
+  S.passwordIsDefault = !!data.password_is_default;
+  S.metaPending = data.meta_pending || 0;
+  applyMode();
+  return data;
+}
+
+function openModeDialog() {
+  const dlg = $('#modeDlg');
+  const adult = isAdult();
+  $('#mTitle').textContent = adult ? '成人模式' : '家长验证';
+  $('#loginPane').classList.toggle('hidden', adult);
+  $('#adultPaneMode').classList.toggle('hidden', !adult);
+  $('#loginUser').value = S.username || 'sysadmin';
+  $('#loginPass').value = '';
+  if (!dlg.open) dlg.showModal();
+  if (!adult) setTimeout(() => $('#loginPass').focus(), 60);
+}
+
+async function doLogin() {
+  const username = $('#loginUser').value.trim() || 'sysadmin';
+  const password = $('#loginPass').value;
+  if (!password) return toast('请输入密码', 'err');
+  const btn = $('#loginBtn');
+  btn.disabled = true;
+  const { data } = await api('/api/mode/login',
+    { method: 'POST', body: { username, password } });
+  btn.disabled = false;
+  if (!data.ok) return toast(data.message || '用户名或密码错误', 'err');
+  $('#modeDlg').close();
+  await refreshMode();
+  await loadLibraries();
+  await loadItems();
+  toast('已进入成人模式', 'ok');
+}
+
+async function doLogout() {
+  if (!confirm('退出成人模式？\n\n退出后管理、设置、更新等入口会重新隐藏。')) return;
+  await api('/api/mode/logout', { method: 'POST', body: {} });
+  $('#modeDlg').close();
+  await refreshMode();
+  await loadLibraries();
+  await loadItems();
+  toast('已退出成人模式', 'ok');
+}
+
+async function batchKidFlag(kind, value) {
+  if (!isAdult()) return toast('请先进入成人模式', 'err');
+  if (!S.selected.size) return toast('还没有选择条目', 'err');
+  const ids = Array.from(S.selected);
+  const path = kind === 'block' ? '/api/kids/block' : '/api/kids/allow';
+  const body = kind === 'block' ? { ids, blocked: value } : { ids, allowed: value };
+  const { data } = await api(path, { method: 'POST', body });
+  if (!data.ok) return toast(data.message || '操作失败', 'err');
+  S.selected.clear();
+  updateSelBar();
+  toggleSelectMode(false);
+  await loadItems();
+  const label = kind === 'block'
+    ? (value ? '已屏蔽' : '已取消屏蔽') : (value ? '已放行' : '已取消放行');
+  toast(`${label} ${data.count} 个条目`, 'ok');
+}
+
+function renderKidsSettings() {
+  const pol = S.kidsPolicy || {};
+  $('#pwTip').innerHTML = S.passwordIsDefault
+    ? '初始密码为 <code>changeme</code>，建议尽快修改。'
+    : '密码已修改，请妥善保管。';
+  const st = $('#metaState');
+  st.textContent = S.metaPending > 0 ? `还有 ${S.metaPending} 条缺少分级` : '分级信息已补全';
+  st.className = 'tag' + (S.metaPending > 0 ? '' : ' ok');
+  const list = (arr) => (arr || []).map(esc).join('、') || '无';
+  $('#kidsPolicy').innerHTML =
+    `<div class="kids-chips"><b>屏蔽类型</b>${list(pol.blocked_genres)}</div>
+     <div class="kids-chips"><b>屏蔽分级</b>${list(pol.blocked_certifications)}</div>
+     <div class="kids-chips"><b>标题敏感词</b>${list(pol.blocked_title_keywords)}</div>
+     <p class="tip">当前为「标准」过滤档。需要更严格或更宽松时，可修改 config.json 的 <code>kids</code> 段。</p>`;
+}
+
 /* ------------------------------------------------------------------ 设置 */
 async function openSettings() {
+  if (!isAdult()) { openModeDialog(); return; }
+  await refreshMode();
   const { data } = await api('/api/config');
   S.cfg = data.config;
   S.players = data.players || [];
@@ -703,6 +868,7 @@ async function openSettings() {
 
   await renderLibList();
   await renderIgnored();
+  renderKidsSettings();
   $('#setDlg').showModal();
 }
 
@@ -876,6 +1042,8 @@ function bind() {
     const titles = ids.map(id => (S.items.find(i => i.id === id) || {}).title || id);
     confirmRemove(ids, titles);
   });
+  $('#selBlock').addEventListener('click', () => batchKidFlag('block', true));
+  $('#selUnblock').addEventListener('click', () => batchKidFlag('block', false));
 
   $('#wall').addEventListener('click', (e) => {
     const del = e.target.closest('[data-del]');
@@ -913,6 +1081,50 @@ function bind() {
   $('#sClose').onclick = () => $('#setDlg').close();
   $('#pclose').onclick = () => { $('#progress').classList.add('hidden'); stopPolling(); };
 
+  $('#brand').addEventListener('dblclick', (e) => { e.preventDefault(); openModeDialog(); });
+  $('#modeOut').addEventListener('click', openModeDialog);
+  $('#mClose').onclick = () => $('#modeDlg').close();
+  $('#loginBtn').addEventListener('click', doLogin);
+  $('#loginPass').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); doLogin(); }
+  });
+  $('#logoutBtn').addEventListener('click', doLogout);
+  $('#modeSettings').addEventListener('click', () => {
+    $('#modeDlg').close();
+    openSettings();
+  });
+
+  $('#pwSave').addEventListener('click', async () => {
+    const oldPw = $('#pwOld').value;
+    const newPw = $('#pwNew').value;
+    const newPw2 = $('#pwNew2').value;
+    if (!oldPw || !newPw) return toast('请填写原密码与新密码', 'err');
+    if (newPw.length < 6) return toast('新密码至少 6 位', 'err');
+    if (newPw !== newPw2) return toast('两次输入的新密码不一致', 'err');
+    const { data } = await api('/api/mode/password',
+      { method: 'POST', body: { old: oldPw, new: newPw } });
+    if (!data.ok) return toast(data.message || '修改失败', 'err');
+    $('#pwOld').value = ''; $('#pwNew').value = ''; $('#pwNew2').value = '';
+    S.passwordIsDefault = false;
+    renderKidsSettings();
+    toast('密码已修改', 'ok');
+  });
+
+  $('#metaBackfill').addEventListener('click', async () => {
+    const btn = $('#metaBackfill');
+    btn.disabled = true;
+    const { data } = await api('/api/kids/backfill', { method: 'POST', body: {} });
+    btn.disabled = false;
+    if (!data.ok) return toast(data.message || '无法开始补全', 'err');
+    if (!data.total) {
+      S.metaPending = 0;
+      renderKidsSettings();
+      return toast('分级信息已是最新', 'ok');
+    }
+    $('#metaState').textContent = `补全中 0/${data.total}`;
+    toast(`开始补全 ${data.total} 条分级信息`);
+  });
+
   $('#emptyAction').addEventListener('click', () => {
     if (S.items.length) {
       S.q = ''; S.kind = ''; S.unidOnly = false; S.genre = '';
@@ -920,9 +1132,11 @@ function bind() {
       $$('#kindSeg button').forEach(x => x.classList.toggle('on', !x.dataset.kind));
       renderGenres(); renderStats(); renderWall();
     } else if (!S.libs.length) {
-      openSettings();
+      if (isAdult()) openSettings();
+      else toast('请让家长切换到成人模式配置媒体库');
     } else {
-      doSync(false);
+      if (isAdult()) doSync(false);
+      else toast('请让家长切换到成人模式执行扫描', 'err');
     }
   });
 
@@ -999,9 +1213,8 @@ function bind() {
 /* ------------------------------------------------------------------ 启动 */
 async function init() {
   bind();
-  const cfgRes = await api('/api/config');
-  S.cfg = cfgRes.data.config;
-  const def = (S.cfg && S.cfg.ui && S.cfg.ui.default_sort) || 'added';
+  const mode = await refreshMode();
+  const def = (mode && mode.default_sort) || 'added';
   if (SORT_DEFAULT_DIR[def]) S.sort = def;
   S.dir = SORT_DEFAULT_DIR[S.sort];
   await loadLibraries();
